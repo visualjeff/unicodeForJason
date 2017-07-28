@@ -37,25 +37,24 @@ const unicodefilePath = Path.join(__dirname, `${propertiesFile}.unicode`);
 if (process.versions.node.split('.')[0] < 6) { console.error('Node.js version 6.x.x or greater is required to run this script.  The current version you have installed is: ' + process.versions.node); process.exit(1); }
 
 //Reading the whole file into memory
-let file = Fs.readFileSync(filePath, { encoding: 'utf8' }, (error, data) => {
-    if (!error) {
+let file = Fs.readFileSync(filePath, { encoding: 'utf8' }, (err, data) => {
+    if (!err) {
         return data;
-    } else { 
-        throw error;
+    } else {
+        throw err;
     }
 });
 
 //process string by unicode foreign characters
-const toUnicode = function(theString) {
-    let prefix = '\\u';
+const toUnicode = (theString) => {
     let unicodeString = '';
-    for (let i=0; i < theString.length; i++) {
+    for (let i=0; i < theString.length; i++) { //Replace with a higher order function?
         if (charactersToBeReplaced.includes(theString[i])) {
             let theUnicode = theString.charCodeAt(i).toString(16).toUpperCase();  //charCodeAt returns UTF-16 decimal code, toString(16) (converts decimal number to a base above 10) returns UTF-8 HEX.
             while (theUnicode.length < 4) {
-                theUnicode = '0' + theUnicode;
+                theUnicode = `0${theUnicode}`;
             }
-            theUnicode = prefix + theUnicode; //Prefix the UTF-8 HEX
+            theUnicode = `\\u${theUnicode}`; //Prefix the UTF-8 HEX
             unicodeString += theUnicode;
         } else {
             unicodeString += theString[i];
@@ -65,32 +64,26 @@ const toUnicode = function(theString) {
 };
 
 //Handle lineEnding - Windows is CRLF while *nix's are LF.  Callback does the rest of the work for this script.
-Crlf.get(filePath, null, (error, endingType) => {
-    if (!error) {
-        let lineEnding = '\n';
-        if (endingType === 'CRLF') {
-            lineEnding = '\r\n';
-        }
-
-        //Process each row
-        let arrayOfLines = file.split(lineEnding);
-        arrayOfLines.forEach(function(row, index, arr) {
-            if (row.search('=') != -1) { //Process a row only if it includes a '='
-                let rowParts = row.split('=');
-                arr[index] = rowParts[0] + '=' + toUnicode(rowParts[1]);
+Crlf.get(filePath, null, (err, endingType) => {
+    if (!err) {
+        //Process each row.  Start by handling carriage returns and line feeds.
+        let arrayOfLines = file.split( ((endingType === 'CRLF') ? '\r\n' : '\n') );   
+        const data = arrayOfLines.map((row) => {
+            if (row.search('=') != -1) { 
+                const rowParts = row.split('=');
+                return `${rowParts[0]}=${toUnicode(rowParts[1])}\n`;
+            } else { 
+                return `${row}\n`;
             }
         });
         
-        //For adding back in a line ending for processed rows.
-        const data = arrayOfLines.map(function(v){ 
-            return v + '\n';
-        });
-        
-        //Write process file / data to the file system.  Using a stream.
+        //Write process data to the file system.  Using a stream.
         const newFile = Fs.createWriteStream(unicodefilePath);
-        newFile.on('error', function(err) { console.log(err); });
-        data.forEach(function(v) { newFile.write(v); });
+        newFile.on('error', (err) => { console.log(err); });
+        data.forEach((row) => { newFile.write(row); });
         newFile.end();
+    } else {
+        throw err;
     }
 });
 
